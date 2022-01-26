@@ -1,3 +1,6 @@
+
+<p>This is a Fork from the Repo Mehigh17/BlazorLeaflet. I add many modifications to use more fonctionalities of Leaflet</p>
+
 <div align="center">
     <img src="media/logo.png" width=300>
     <h1>Blazor Leaflet</h1>
