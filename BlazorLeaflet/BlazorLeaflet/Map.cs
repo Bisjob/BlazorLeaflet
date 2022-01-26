@@ -14,17 +14,37 @@ using Microsoft.AspNetCore.Components.Web;
 
 namespace BlazorLeaflet
 {
-    public class Map
+    public class Map : IDisposable
     {
         /// <summary>
         /// Initial geographic center of the map
         /// </summary>
-        public LatLng Center { get; set; } = new LatLng();
+        public LatLng Center
+        {
+            get => center;
+            set
+            {
+                center = value;
+                if (isInitialized)
+                    RunTaskInBackground(async () => await LeafletInterops.PanTo(
+                        jsRuntime, Id, value.ToPointF(), false, 0, 0, false));
+            }
+        }
 
         /// <summary>
         /// Initial map zoom level
         /// </summary>
-        public float Zoom { get; set; }
+        public float Zoom
+        {
+            get => zoom;
+            set
+            {
+                zoom = value;
+                if (isInitialized)
+                    RunTaskInBackground(async () => await LeafletInterops.SetZoom(
+                        jsRuntime, Id, value));
+            }
+        }
 
         /// <summary>
         /// Minimum zoom level of the map. If not specified and at least one 
@@ -61,18 +81,36 @@ namespace BlazorLeaflet
 
         public string Id { get; }
 
-        private ObservableCollection<Layer> _layers = new ObservableCollection<Layer>();
+        private LatLng center = new LatLng();
+        private float zoom;
 
-        private readonly IJSRuntime _jsRuntime;
+        private readonly ObservableCollection<Layer> layers = new ObservableCollection<Layer>();
 
-        private bool _isInitialized;
+        private readonly ObservableCollection<Marker> markers = new ObservableCollection<Marker>();
+
+        private readonly IJSRuntime jsRuntime;
+
+        private bool isInitialized;
 
         public Map(IJSRuntime jsRuntime)
         {
-            _jsRuntime = jsRuntime ?? throw new ArgumentNullException(nameof(jsRuntime));
+            this.jsRuntime = jsRuntime ?? throw new ArgumentNullException(nameof(jsRuntime));
             Id = StringHelper.GetRandomString(10);
 
-            _layers.CollectionChanged += OnLayersChanged;
+            layers.CollectionChanged += OnLayersChanged;
+            markers.CollectionChanged += OnLayersChanged;
+        }
+
+        private async void RunTaskInBackground(Func<Task> task)
+        {
+            try
+            {
+                await task();
+            }
+            catch (Exception ex)
+            {
+                NotifyBackgroundExceptionOccurred(ex);
+            }
         }
 
         /// <summary>
@@ -80,7 +118,7 @@ namespace BlazorLeaflet
         /// </summary>
         public void RaiseOnInitialized()
         {
-            _isInitialized = true;
+            isInitialized = true;
             OnInitialized?.Invoke();
         }
 
@@ -97,12 +135,12 @@ namespace BlazorLeaflet
                 throw new ArgumentNullException(nameof(layer));
             }
 
-            if (!_isInitialized)
+            if (!isInitialized)
             {
                 throw new UninitializedMapException();
             }
 
-            _layers.Add(layer);
+            layers.Add(layer);
         }
 
         /// <summary>
@@ -118,12 +156,100 @@ namespace BlazorLeaflet
                 throw new ArgumentNullException(nameof(layer));
             }
 
-            if (!_isInitialized)
+            if (!isInitialized)
             {
                 throw new UninitializedMapException();
             }
 
-            _layers.Remove(layer);
+            layers.Remove(layer);
+        }
+
+        public void ClearLayers()
+        {
+            if (!isInitialized)
+            {
+                throw new UninitializedMapException();
+            }
+
+            foreach (var l in layers)
+                LeafletInterops.RemoveLayer(jsRuntime, Id, l.Id);
+            layers.Clear();
+        }
+
+
+        /// <summary>
+        /// Add a layer to the map.
+        /// </summary>
+        /// <param name="layer">The layer to be added.</param>
+        /// <exception cref="System.ArgumentNullException">Throws when the layer is null.</exception>
+        /// <exception cref="UninitializedMapException">Throws when the map has not been yet initialized.</exception>
+        public void AddMarker(Marker layer)
+        {
+            if (layer is null)
+            {
+                throw new ArgumentNullException(nameof(layer));
+            }
+
+            if (!isInitialized)
+            {
+                throw new UninitializedMapException();
+            }
+
+            markers.Add(layer);
+        }
+
+        /// <summary>
+        /// Remove a layer from the map.
+        /// </summary>
+        /// <param name="layer">The layer to be removed.</param>
+        /// <exception cref="System.ArgumentNullException">Throws when the layer is null.</exception>
+        /// <exception cref="UninitializedMapException">Throws when the map has not been yet initialized.</exception>
+        public void RemoveMarker(Marker layer)
+        {
+            if (layer is null)
+            {
+                throw new ArgumentNullException(nameof(layer));
+            }
+
+            if (!isInitialized)
+            {
+                throw new UninitializedMapException();
+            }
+
+            markers.Remove(layer);
+        }
+
+        public void ClearMarkers()
+        {
+            if (!isInitialized)
+            {
+                throw new UninitializedMapException();
+            }
+
+            foreach (var l in markers)
+            {
+                if (l.ClusterID == null)
+                    LeafletInterops.RemoveLayer(jsRuntime, Id, l.Id);
+                else
+                    LeafletInterops.RemoveLayerFromCluster(jsRuntime, Id, l.Id, l.ClusterID.Value);
+            }
+                
+            markers.Clear();
+        }
+
+        public void InvalidateSize(int delay = 0)
+        {
+            LeafletInterops.InvalidateSize(jsRuntime, Id, delay);
+        }
+
+        public void DisableInteraction()
+        {
+            LeafletInterops.DisableInteraction(jsRuntime, Id);
+        }
+
+        public void EnableInteraction()
+        {
+            LeafletInterops.EnableInteraction(jsRuntime, Id);
         }
 
         /// <summary>
@@ -132,7 +258,7 @@ namespace BlazorLeaflet
         /// <returns>A read only collection of layers.</returns>
         public IReadOnlyCollection<Layer> GetLayers()
         {
-            return _layers.ToList().AsReadOnly();
+            return layers.ToList().AsReadOnly();
         }
 
         private void OnLayersChanged(object sender, NotifyCollectionChangedEventArgs args)
@@ -142,7 +268,10 @@ namespace BlazorLeaflet
                 foreach (var item in args.NewItems)
                 {
                     var layer = item as Layer;
-                    LeafletInterops.AddLayer(_jsRuntime, Id, layer);
+                    if (layer.ClusterID == null)
+                        LeafletInterops.AddLayer(jsRuntime, Id, layer);
+                    else
+                        LeafletInterops.AddLayerToCluster(jsRuntime, Id, layer, layer.ClusterID.Value);
                 }
             }
             else if (args.Action == NotifyCollectionChangedAction.Remove)
@@ -151,7 +280,10 @@ namespace BlazorLeaflet
                 {
                     if (item is Layer layer)
                     {
-                        LeafletInterops.RemoveLayer(_jsRuntime, Id, layer.Id);
+                        if (layer.ClusterID == null)
+                            LeafletInterops.RemoveLayer(jsRuntime, Id, layer.Id);
+                        else
+                            LeafletInterops.RemoveLayerFromCluster(jsRuntime, Id, layer.Id, layer.ClusterID.Value);
                     }
                 }
             }
@@ -160,40 +292,76 @@ namespace BlazorLeaflet
             {
                 foreach (var oldItem in args.OldItems)
                     if (oldItem is Layer layer)
-                        LeafletInterops.RemoveLayer(_jsRuntime, Id, layer.Id);
+                    {
+                        if (layer.ClusterID == null)
+                            LeafletInterops.RemoveLayer(jsRuntime, Id, layer.Id);
+                        else
+                            LeafletInterops.RemoveLayerFromCluster(jsRuntime, Id, layer.Id, layer.ClusterID.Value);
+                    }
 
                 foreach (var newItem in args.NewItems)
-                    LeafletInterops.AddLayer(_jsRuntime, Id, newItem as Layer);
+                {
+                    var layer = newItem as Layer;
+                    if (layer.ClusterID == null)
+                        LeafletInterops.AddLayer(jsRuntime, Id, layer);
+                    else
+                        LeafletInterops.AddLayerToCluster(jsRuntime, Id, layer, layer.ClusterID.Value);
+                }
             }
         }
-
+        
         public void FitBounds(PointF corner1, PointF corner2, PointF? padding = null, float? maxZoom = null)
         {
-            LeafletInterops.FitBounds(_jsRuntime, Id, corner1, corner2, padding, maxZoom);
+            LeafletInterops.FitBounds(jsRuntime, Id, corner1, corner2, padding, maxZoom);
         }
 
         public void PanTo(PointF position, bool animate = false, float duration = 0.25f, float easeLinearity = 0.25f, bool noMoveStart = false)
         {
-            LeafletInterops.PanTo(_jsRuntime, Id, position, animate, duration, easeLinearity, noMoveStart);
+            LeafletInterops.PanTo(jsRuntime, Id, position, animate, duration, easeLinearity, noMoveStart);
         }
 
-        public async Task<LatLng> GetCenter() => await LeafletInterops.GetCenter(_jsRuntime, Id);
+        public void FlyTo(PointF position, float zoomLevel)
+        {
+            LeafletInterops.FlyTo(jsRuntime, Id, position, zoomLevel);
+        }
+        public void FlyToBounds(PointF corner1, PointF corner2, float zoomLevel)
+        {
+            LeafletInterops.FlyToBounds(jsRuntime, Id, corner1, corner2, zoomLevel);
+        }
+
+        public async Task<LatLng> GetCenter() => await LeafletInterops.GetCenter(jsRuntime, Id);
         public async Task<float> GetZoom() => 
-            await LeafletInterops.GetZoom(_jsRuntime, Id);
+            await LeafletInterops.GetZoom(jsRuntime, Id);
 
         /// <summary>
         /// Increases the zoom level by one notch.
         /// 
         /// If <c>shift</c> is held down, increases it by three.
         /// </summary>
-        public async Task ZoomIn(MouseEventArgs e) => await LeafletInterops.ZoomIn(_jsRuntime, Id, e);
+        public async Task ZoomIn(MouseEventArgs e) => await LeafletInterops.ZoomIn(jsRuntime, Id, e);
 
         /// <summary>
         /// Decreases the zoom level by one notch.
         /// 
         /// If <c>shift</c> is held down, decreases it by three.
         /// </summary>
-        public async Task ZoomOut(MouseEventArgs e) => await LeafletInterops.ZoomOut(_jsRuntime, Id, e);
+        public async Task ZoomOut(MouseEventArgs e) => await LeafletInterops.ZoomOut(jsRuntime, Id, e);
+
+        private async Task UpdateZoom()
+        {
+            zoom = await GetZoom();
+        }
+
+        private async Task UpdateCenter()
+        {
+
+            center = await GetCenter();
+        }
+
+        public async Task UpdateHeatOptions(HeatLayer layer)
+        {
+            await LeafletInterops.UpdateHeatOption(jsRuntime, Id, layer);
+        }
 
         #region events
 
@@ -238,11 +406,31 @@ namespace BlazorLeaflet
 
         public event MapEventHandler OnZoomEnd;
         [JSInvokable]
-        public void NotifyZoomEnd(Event e) => OnZoomEnd?.Invoke(this, e);
+        public async void NotifyZoomEnd(Event e)
+        {
+            try
+            {
+                await UpdateZoom();
+            }
+            finally
+            {
+                OnZoomEnd?.Invoke(this, e);
+            }
+        }
 
         public event MapEventHandler OnMoveEnd;
         [JSInvokable]
-        public void NotifyMoveEnd(Event e) => OnMoveEnd?.Invoke(this, e);
+        public async void NotifyMoveEnd(Event e)
+        {
+            try
+            {
+                await UpdateCenter();
+            }
+            finally
+            {
+                OnMoveEnd?.Invoke(this, e);
+            }
+        }
 
         public event MouseEventHandler OnMouseMove;
         [JSInvokable]
@@ -263,6 +451,10 @@ namespace BlazorLeaflet
         public event MouseEventHandler OnPreClick;
         [JSInvokable]
         public void NotifyPreClick(MouseEvent eventArgs) => OnPreClick?.Invoke(this, eventArgs);
+
+        public event EventHandler<Exception> BackgroundExceptionOccurred;
+        private void NotifyBackgroundExceptionOccurred(Exception exception) =>
+            BackgroundExceptionOccurred?.Invoke(this, exception);
 
         #endregion events
 
@@ -301,6 +493,11 @@ namespace BlazorLeaflet
 
         [JSInvokable]
         public void NotifyContextMenu(MouseEvent eventArgs) => OnContextMenu?.Invoke(this, eventArgs);
+
+        public void Dispose()
+        {
+            LeafletInterops.Dispose(jsRuntime, Id);
+        }
 
         #endregion InteractiveLayerEvents
     }

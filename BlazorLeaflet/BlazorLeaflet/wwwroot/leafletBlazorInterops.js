@@ -1,5 +1,6 @@
 ﻿maps = {};
 layers = {};
+clusters = {};
 
 window.leafletBlazor = {
     create: function (map, objectReference) {
@@ -15,6 +16,7 @@ window.leafletBlazor = {
         connectMapEvents(leafletMap, objectReference);
         maps[map.id] = leafletMap;
         layers[map.id] = [];
+        clusters[map.id] = {};
     },
     addTilelayer: function (mapId, tileLayer, objectReference) {
         const layer = L.tileLayer(tileLayer.urlTemplate, {
@@ -90,14 +92,16 @@ window.leafletBlazor = {
         }
     },
     addPolygon: function (mapId, polygon, objectReference) {
-        const layer = L.polygon(shapeToLatLngArray(polygon.shape), createPolyline(polygon));
+        const layer = L.polygon(shapePolygonToLatLngArray(polygon.shape), createPolyline(polygon));
+        connectInteractiveLayerEvents(layer, objectReference);
         addLayer(mapId, layer, polygon.id);
         setTooltipAndPopupIfDefined(polygon, layer);
     },
     updatePolygon: function (mapId, polygon) {
         let layer = layers[mapId].find(l => l.id === polygon.id);
         if (layer !== undefined) {
-            layer.setLatLngs(shapeToLatLngArray(polygon.shape));
+            layer.setLatLngs(shapePolygonToLatLngArray(polygon.shape));
+            setStyle(polygon, layer);
         }
     },
     addRectangle: function (mapId, rectangle, objectReference) {
@@ -159,6 +163,32 @@ window.leafletBlazor = {
         const geoJsonLayer = L.geoJson(geoDataObject, options);
         addLayer(mapId, geoJsonLayer, geodata.id);
     },
+    addHeatLayer: function (mapId, heat, objectReference) {
+        var options = {
+            radius: heat.radius,
+            opacity: heat.opacity,
+            maxZoom: heat.maxZoom
+        };
+        const heatlayer = L.heatLayer([], options);
+        heatlayer.options.radius 
+        heat.latLongs.forEach(t => {
+            heatlayer.addLatLng(t);
+        });
+
+        addLayer(mapId, heatlayer, heat.id);
+        setTooltipAndPopupIfDefined(heatlayer, layer);
+    },
+    updateHeatOptions: function (mapId, heat) {
+        let layer = layers[mapId].find(l => l.id === heat.id);
+        if (layer !== undefined) {
+            var options = {
+                radius: heat.radius,
+                opacity: heat.opacity,
+                maxZoom: heat.maxZoom
+            };
+            layer.setOptions(options);
+        }
+    },
     removeLayer: function (mapId, layerId) {
         const remainingLayers = layers[mapId].filter((layer) => layer.id !== layerId);
         const layersToBeRemoved = layers[mapId].filter((layer) => layer.id === layerId); // should be only one ...
@@ -166,6 +196,66 @@ window.leafletBlazor = {
 
         layersToBeRemoved.forEach(m => m.removeFrom(maps[mapId]));
     },
+
+    addMarkerToCluster: function (mapId, marker, objectReference, clusterId) {
+        let cluster = clusters[mapId][clusterId];
+        let newCluster = false;
+        if (cluster === undefined) {
+            cluster = new L.MarkerClusterGroup({
+                maxClusterRadius: 70,
+                spiderfyDistanceMultiplier: 2,
+                iconCreateFunction: function (cluster) {
+
+                    return new L.DivIcon({ html: '<div><span>' + cluster.getChildCount() + '</span></div>', className: 'marker-cluster marker-cluster-custom', iconSize: new L.Point(40, 40) });
+                },
+            });
+            clusters[mapId][clusterId] = cluster;
+            newCluster = true;
+        }
+
+        var options = {
+            ...createInteractiveLayer(marker),
+            keyboard: marker.isKeyboardAccessible,
+            title: marker.title,
+            alt: marker.alt,
+            zIndexOffset: marker.zIndexOffset,
+            opacity: marker.opacity,
+            riseOnHover: marker.riseOnHover,
+            riseOffset: marker.riseOffset,
+            pane: marker.pane,
+            bubblingMouseEvents: marker.isBubblingMouseEvents,
+            draggable: marker.draggable,
+            autoPan: marker.useAutopan,
+            autoPanPadding: marker.autoPanPadding,
+            autoPanSpeed: marker.autoPanSpeed
+        };
+
+        if (marker.icon !== null) {
+            options.icon = createIcon(marker.icon);
+        }
+        const mkr = L.marker(marker.position, options);
+        setTooltipAndPopupIfDefined(marker, mkr);
+        connectMarkerEvents(mkr, objectReference);
+
+        mkr.id = marker.id;
+        layers[mapId].push(mkr);
+        cluster.addLayer(mkr);
+
+        if (newCluster) {
+            maps[mapId].addLayer(cluster);
+        }
+    },
+    removeLayerFromCluster: function (mapId, layerId, clusterId) {
+        let cluster = clusters[mapId][clusterId];
+        if (cluster !== undefined) {
+            const remainingLayers = layers[mapId].filter((layer) => layer.id !== layerId);
+            const layersToBeRemoved = layers[mapId].filter((layer) => layer.id === layerId); // should be only one ...
+            layers[mapId] = remainingLayers;
+
+            layersToBeRemoved.forEach(m => cluster.removeLayer(m));
+        }
+    },
+
     updatePopupContent: function (mapId, layerId, content) {
         let layer = layers[mapId].find(l => l.id === layerId);
         if (layer !== undefined) {
@@ -184,6 +274,18 @@ window.leafletBlazor = {
             }
         }
     },
+
+    invalidateSize: function (mapId, delay) {
+        let tmpMap = maps[mapId];
+        if (tmpMap !== undefined) {
+            if (delay == 0) {
+                tmpMap.invalidateSize();
+            } else {
+                setTimeout(function () { tmpMap.invalidateSize() }, delay);
+            }
+        }
+    },
+
     fitBounds: function (mapId, corner1, corner2, padding, maxZoom) {
         const corner1LL = L.latLng(corner1.x, corner1.y);
         const corner2LL = L.latLng(corner2.x, corner2.y);
@@ -221,23 +323,87 @@ window.leafletBlazor = {
         if (map.getZoom() > map.getMinZoom()) {
             map.zoomOut(map.options.zoomDelta * (e.shiftKey ? 3 : 1));
         }
+    },
+    getBounds: function (mapId, path) {
+        let layer = layers[mapId].find(l => l.id === path.id);
+        if (layer == undefined) return null;
+        let bounds = layer.getBounds();
+        return bounds;
+    },
+    setZoom: function (mapId, zoomLevel) {
+        maps[mapId].setZoom(zoomLevel);
+    },
+    flyTo: function (mapId, position, zoomLevel) {
+        const pos = L.latLng(position.x, position.y);
+        maps[mapId].flyTo(pos, zoomLevel);
+    },
+    flyToBounds: function (mapId, corner1, corner2, zoomLevel) {
+        const corner1LL = L.latLng(corner1.x, corner1.y);
+        const corner2LL = L.latLng(corner2.x, corner2.y);
+        bounds = L.latLngBounds(corner1LL, corner2LL);
+        maps[mapId].flyToBounds(bounds, zoomLevel);
+    },
+
+    disableInteraction: function (mapId) {
+        maps[mapId].dragging.disable();
+        maps[mapId].touchZoom.disable();
+        maps[mapId].doubleClickZoom.disable();
+        maps[mapId].scrollWheelZoom.disable();
+        maps[mapId].boxZoom.disable();
+        maps[mapId].keyboard.disable();
+        if (maps[mapId].tap) maps[mapId].tap.disable();
+        document.getElementById('mapId').style.cursor = 'default';
+    },
+    enableInteraction: function (mapId) {
+        maps[mapId].dragging.enable();
+        maps[mapId].touchZoom.enable();
+        maps[mapId].doubleClickZoom.enable();
+        maps[mapId].scrollWheelZoom.enable();
+        maps[mapId].boxZoom.enable();
+        maps[mapId].keyboard.enable();
+        if (maps[mapId].tap) maps[mapId].tap.enable();
+        document.getElementById('mapId').style.cursor = 'grab';
+    },
+
+    dispose: function (mapId) {
+        delete layer[mapId];
+        delete map[mapId];
     }
 };
 
 function createIcon(icon) {
-    return L.icon({
-        iconUrl: icon.url,
-        iconRetinaUrl: icon.retinaUrl,
-        iconSize: icon.size ? L.point(icon.size.value.width, icon.size.value.height) : null,
-        iconAnchor: icon.anchor ? L.point(icon.anchor.value.x, icon.anchor.value.y) : null,
-        popupAnchor: L.point(icon.popupAnchor.x, icon.popupAnchor.y),
-        tooltipAnchor: L.point(icon.tooltipAnchor.x, icon.tooltipAnchor.y),
-        shadowUrl: icon.shadowUrl,
-        shadowRetinaUrl: icon.shadowRetinaUrl,
-        shadowSize: icon.shadowSize ? L.point(icon.shadowSize.value.width, icon.shadowSize.value.height) : null,
-        shadowSizeAnchor: icon.shadowSizeAnchor ? L.point(icon.shadowSizeAnchor.value.width, icon.shadowSizeAnchor.value.height) : null,
-        className: icon.className
-    })
+
+    if (icon.isIconDiv !== undefined && icon.isIconDiv == true) {
+        return L.divIcon({
+            iconRetinaUrl: icon.retinaUrl,
+            iconSize: (icon.width != 0 && icon.height != 0) ? L.point(icon.width, icon.height) : null,
+            iconAnchor: (icon.anchorX != 0 || icon.anchorY != 0) ? L.point(icon.anchorX, icon.anchorY) : null,
+            popupAnchor: L.point(icon.popupAnchor.x, icon.popupAnchor.y),
+            tooltipAnchor: L.point(icon.tooltipAnchor.x, icon.tooltipAnchor.y),
+            shadowUrl: icon.shadowUrl,
+            shadowRetinaUrl: icon.shadowRetinaUrl,
+            shadowSize: icon.shadowSize ? L.point(icon.shadowSize.value.width, icon.shadowSize.value.height) : null,
+            shadowSizeAnchor: icon.shadowSizeAnchor ? L.point(icon.shadowSizeAnchor.value.width, icon.shadowSizeAnchor.value.height) : null,
+            className: icon.className,
+            html: icon.html,
+            bgPos: L.point(icon.bgPos.x, icon.bgPos.y),
+        })
+    }
+    else {
+        return L.icon({
+            iconUrl: icon.url,
+            iconRetinaUrl: icon.retinaUrl,
+            iconSize: (icon.width != 0 && icon.height != 0) ? L.point(icon.width, icon.height) : null,
+            iconAnchor: (icon.anchorX != 0 || icon.anchorY != 0) ? L.point(icon.anchorX, icon.anchorY) : null,
+            popupAnchor: L.point(icon.popupAnchor.x, icon.popupAnchor.y),
+            tooltipAnchor: L.point(icon.tooltipAnchor.x, icon.tooltipAnchor.y),
+            shadowUrl: icon.shadowUrl,
+            shadowRetinaUrl: icon.shadowRetinaUrl,
+            shadowSize: icon.shadowSize ? L.point(icon.shadowSize.value.width, icon.shadowSize.value.height) : null,
+            shadowSizeAnchor: icon.shadowSizeAnchor ? L.point(icon.shadowSizeAnchor.value.width, icon.shadowSizeAnchor.value.height) : null,
+            className: icon.className
+        })
+    }
 }
 
 function shapeToLatLngArray(shape) {
@@ -248,6 +414,20 @@ function shapeToLatLngArray(shape) {
         latlngs.push(ll);
     });
 
+    return latlngs;
+}
+
+function shapePolygonToLatLngArray(shape) {
+    var latlngs = [];
+    shape.forEach(poly => {
+        var polygon = [];
+        poly.forEach(ring => {
+            var ll = [];
+            ring.forEach(p => ll.push([p.x, p.y]));
+            polygon.push(ll);
+        });
+        latlngs.push(polygon);
+    });
     return latlngs;
 }
 
@@ -291,6 +471,27 @@ function createLayer(obj) {
         pane: obj.pane,
         attribution: obj.attribution
     };
+}
+
+function setStyle(from, to) {
+    to.setStyle({
+        stroke: from.drawStroke,
+        color: getColorString(from.strokeColor),
+        weight: from.strokeWidth,
+        opacity: from.strokeOpacity,
+        lineCap: from.lineCap,
+        lineJoin: from.lineJoin,
+        dashArray: from.strokeDashArray,
+        dashOffset: from.strokeDashOffset,
+        fill: from.fill,
+        fillColor: getColorString(from.fillColor),
+        fillOpacity: from.fillOpacity,
+        fillRule: from.fillRule
+    });
+
+    if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+        layer.bringToFront();
+    }
 }
 
 function getColorString(color) {
@@ -456,3 +657,4 @@ function connectInteractionEvents(interactiveObject, objectReference) {
 }
 
 // #endregion
+

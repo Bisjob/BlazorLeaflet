@@ -1,5 +1,7 @@
-﻿namespace BlazorLeaflet.Models
+﻿using System.Drawing;
+
+namespace BlazorLeaflet.Models
 {
-    public class Polygon : Polyline
+    public class Polygon : Polyline<PointF[][][]>
     { }
 }

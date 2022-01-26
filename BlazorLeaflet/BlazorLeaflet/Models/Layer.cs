@@ -31,6 +31,11 @@ namespace BlazorLeaflet.Models
         /// </summary>
         public Popup Popup { get; set; }
 
+        /// <summary>
+        /// Cluster ID, -1 = No cluster
+        /// </summary>
+        public int? ClusterID { get; set; }
+
         protected Layer()
         {
             Id = StringHelper.GetRandomString(20);

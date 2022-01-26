@@ -16,14 +16,21 @@ namespace BlazorLeaflet.Models
         public string RetinalUrl { get; set; }
 
         /// <summary>
-        /// Size of the icon image in pixels.
+        /// Width of the icon image in pixels.
         /// </summary>
-        public Size? Size { get; set; }
+        public int Width { get; set; }
+
+        /// <summary>
+        /// Height of the icon image in pixels.
+        /// </summary>
+        public int Height { get; set; }
 
         /// <summary>
         /// The coordinates of the "tip" of the icon (relative to its top left corner). The icon will be aligned so that this point is at the marker's geographical location. Centered by default if size is specified, also can be set in CSS with negative margins.
         /// </summary>
-        public Point? Anchor { get; set; }
+        //public Point? Anchor { get; set; }
+        public int AnchorX { get; set; }
+        public int AnchorY { get; set; }
 
         /// <summary>
         /// The coordinates of the point from which popups will "open", relative to the icon anchor.
@@ -57,5 +64,19 @@ namespace BlazorLeaflet.Models
         /// </summary>
         public string ClassName { get; set; } = string.Empty;
 
+        /// <summary>
+        /// True to set An IconDiv (ignore iconUrl)
+        /// </summary>
+        public bool IsIconDiv { get; set; }
+
+        /// <summary>
+        /// Custom HTML code to put inside the div element, empty by default. Alternatively, an instance of HTMLElement.
+        /// </summary>
+        public string HTML { get; set; }
+
+        /// <summary>
+        /// Optional relative position of the background, in pixels
+        /// </summary>
+        public Point BgPos { get; set; }
     }
 }

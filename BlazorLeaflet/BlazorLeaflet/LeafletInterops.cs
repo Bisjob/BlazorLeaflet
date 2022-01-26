@@ -48,8 +48,30 @@ namespace BlazorLeaflet
                 Polyline polyline => jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.addPolyline", mapId, polyline, CreateLayerReference(mapId, polyline)),
                 ImageLayer image => jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.addImageLayer", mapId, image, CreateLayerReference(mapId, image)),
                 GeoJsonDataLayer geo => jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.addGeoJsonLayer", mapId, geo, CreateLayerReference(mapId, geo)),
+                HeatLayer heat => jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.addHeatLayer", mapId, heat, CreateLayerReference(mapId, heat)),
                 _ => throw new NotImplementedException($"The layer {typeof(Layer).Name} has not been implemented."),
             };
+        }
+
+        public static ValueTask AddLayerToCluster(IJSRuntime jsRuntime, string mapId, Layer layer, int clusterID)
+        {
+            return layer switch
+            {
+                Marker marker => jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.addMarkerToCluster", mapId, marker, CreateLayerReference(mapId, marker), clusterID),
+                _ => throw new NotImplementedException($"The layer cluster {typeof(Layer).Name} has not been implemented."),
+            };
+        }
+        public static async ValueTask RemoveLayerFromCluster(IJSRuntime jsRuntime, string mapId, string layerId, int clusterID)
+        {
+            await jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.removeLayerFromCluster", mapId, layerId, clusterID);
+            DisposeLayerReference(layerId);
+        }
+        
+
+
+        public static async ValueTask AddMarkers(IJSRuntime jsRuntime, string mapId, IEnumerable<Marker> markers)
+        {
+            await jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.addMarkers", mapId, markers);
         }
 
         public static async ValueTask RemoveLayer(IJSRuntime jsRuntime, string mapId, string layerId)
@@ -74,6 +96,12 @@ namespace BlazorLeaflet
                 _ => throw new NotImplementedException($"The layer {typeof(Layer).Name} has not been implemented."),
             };
 
+        public static ValueTask UpdateHeatOption(IJSRuntime jSRuntime, string mapId, HeatLayer heat) => 
+            jSRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.updateHeatOptions", mapId, heat);
+        
+        public static ValueTask InvalidateSize(IJSRuntime jSRuntime, string mapId, int delay) => 
+            jSRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.invalidateSize", mapId, delay);
+
         public static ValueTask FitBounds(IJSRuntime jsRuntime, string mapId, PointF corner1, PointF corner2, PointF? padding, float? maxZoom) =>
             jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.fitBounds", mapId, corner1, corner2, padding, maxZoom);
 
@@ -85,11 +113,32 @@ namespace BlazorLeaflet
 
         public static ValueTask<float> GetZoom(IJSRuntime jsRuntime, string mapId) =>
             jsRuntime.InvokeAsync<float>($"{_BaseObjectContainer}.getZoom", mapId);
+        
+        public static ValueTask SetZoom(IJSRuntime jsRuntime, string mapId, float zoomLevel) => 
+            jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.setZoom", mapId, zoomLevel);
+
+        public static ValueTask FlyTo(IJSRuntime jsRuntime, string mapId, PointF position, float zoomLevel) =>
+            jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.flyTo", mapId, position, zoomLevel);
+
+        public static ValueTask FlyToBounds(IJSRuntime jsRuntime, string mapId, PointF corner1, PointF corner2, float zoomLevel) =>
+            jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.flyToBounds", mapId, corner1, corner2, zoomLevel);
 
         public static ValueTask ZoomIn(IJSRuntime jsRuntime, string mapId, MouseEventArgs e) =>
             jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.zoomIn", mapId, e);
 
         public static ValueTask ZoomOut(IJSRuntime jsRuntime, string mapId, MouseEventArgs e) =>
             jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.zoomOut", mapId, e);
+
+        public static ValueTask<LatLngBounds> GetBounds(IJSRuntime jsRuntime, string mapId, Layer path) =>
+            jsRuntime.InvokeAsync<LatLngBounds>($"{_BaseObjectContainer}.getBounds", mapId, path);
+
+        public static ValueTask DisableInteraction(IJSRuntime jsRuntime, string mapId) =>
+            jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.disableInteraction", mapId);
+        public static ValueTask EnableInteraction(IJSRuntime jsRuntime, string mapId) =>
+            jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.dispenableInteractionose", mapId);
+
+
+        public static ValueTask Dispose(IJSRuntime jsRuntime, string mapId) =>
+            jsRuntime.InvokeVoidAsync($"{_BaseObjectContainer}.dispose", mapId);
     }
 }
