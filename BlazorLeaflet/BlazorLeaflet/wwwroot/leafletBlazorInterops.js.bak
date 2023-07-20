@@ -80,19 +80,8 @@ window.leafletBlazor = {
         addLayer(mapId, mkr, marker.id);
         setTooltipAndPopupIfDefined(marker, mkr);
     },
-
-
-    //TODO implementer cette méthode
-    updateMarker: function (mapId, marker) {
-        let layer = layers[mapId].find(l => l.id === marker.id);
-        if (layer !== undefined) {
-            
-        }
-    },
-
     addPolyline: function (mapId, polyline, objectReference) {
         const layer = L.polyline(shapeToLatLngArray(polyline.shape), createPolyline(polyline));
-        connectInteractiveLayerEvents(layer, objectReference);
         addLayer(mapId, layer, polyline.id);
         setTooltipAndPopupIfDefined(polyline, layer);
     },
@@ -117,7 +106,6 @@ window.leafletBlazor = {
     },
     addRectangle: function (mapId, rectangle, objectReference) {
         const layer = L.rectangle([[rectangle.shape.bottom, rectangle.shape.left], [rectangle.shape.top, rectangle.shape.right]], createPolyline(rectangle));
-        connectInteractiveLayerEvents(layer, objectReference);
         addLayer(mapId, layer, rectangle.id);
         setTooltipAndPopupIfDefined(rectangle, layer);
     },
@@ -133,7 +121,6 @@ window.leafletBlazor = {
                 ...createPath(circle),
                 radius: circle.radius
             });
-        connectInteractiveLayerEvents(layer, objectReference);
         addLayer(mapId, layer, circle.id);
         setTooltipAndPopupIfDefined(circle, layer);
     },
@@ -160,37 +147,21 @@ window.leafletBlazor = {
         const bounds = L.latLngBounds(corner1, corner2);
 
         const imgLayer = L.imageOverlay(image.url, bounds, layerOptions);
-        addLayer(mapId, imgLayer, image.id);
+        addLayer(mapId, imgLayer);
     },
-    addGeoJsonLayer: function (mapId, geodata, objectReference) {        
+    addGeoJsonLayer: function (mapId, geodata, objectReference) {
         const geoDataObject = JSON.parse(geodata.geoJsonData);
         var options = {
             ...createInteractiveLayer(geodata),
             title: geodata.title,
             bubblingMouseEvents: geodata.isBubblingMouseEvents,
             onEachFeature: function onEachFeature(feature, layer) {
-                layer.on('click', function (evt) {
-                    evt.RegionId = evt.target.feature.properties.EER13NM;                    
-                    objectReference.invokeMethodAsync("NotifyGeoJsonFeatureClick",
-                        cleanupEventArgsForSerialization(evt));
-                });                       
+                connectInteractionEvents(layer, objectReference);
             }
         };
 
         const geoJsonLayer = L.geoJson(geoDataObject, options);
         addLayer(mapId, geoJsonLayer, geodata.id);
-    },
-    styleGeoJsonLayerFeatures: function (mapId, geodataLayerId, colourMap) {
-        var geoLayer = layers[mapId].filter((layer) => layer.id === geodataLayerId);
-        geoLayer[0].eachLayer(layer => {            
-            colourMap.forEach((value, index) => {
-                if (layer.feature.properties.EER13NM === value[0]) {
-                    layer.setStyle({
-                        fillColor: value[1]
-                    });
-                }
-            }); 
-        });
     },
     addHeatLayer: function (mapId, heat, objectReference) {
         var options = {
@@ -333,17 +304,11 @@ window.leafletBlazor = {
             noMoveStart: noMoveStart
         });
     },
-    setMaxBounds: function (mapId, bounds) {
-        maps[mapId].setMaxBounds(bounds);
-    },
     getCenter: function (mapId) {
         return maps[mapId].getCenter();
     },
     getZoom: function (mapId) {
         return maps[mapId].getZoom();
-    },
-    getBounds: function (mapId) {
-        return maps[mapId].getBounds();
     },
     zoomIn: function (mapId, e) {
         const map = maps[mapId];
@@ -359,7 +324,7 @@ window.leafletBlazor = {
             map.zoomOut(map.options.zoomDelta * (e.shiftKey ? 3 : 1));
         }
     },
-    getLayerBounds: function (mapId, path) {
+    getBounds: function (mapId, path) {
         let layer = layers[mapId].find(l => l.id === path.id);
         if (layer == undefined) return null;
         let bounds = layer.getBounds();
@@ -525,7 +490,7 @@ function setStyle(from, to) {
     });
 
     if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
-        to.bringToFront();
+        layer.bringToFront();
     }
 }
 
@@ -678,7 +643,8 @@ function connectMarkerEvents(marker, objectReference) {
     });
 }
 
-function connectInteractionEvents(interactiveObject, objectReference) {    
+function connectInteractionEvents(interactiveObject, objectReference) {
+
     mapEvents(interactiveObject, objectReference, {
         "click": "NotifyClick",
         "dblclick": "NotifyDblClick",

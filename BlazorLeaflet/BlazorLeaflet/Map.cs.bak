@@ -332,14 +332,6 @@ namespace BlazorLeaflet
         public async Task<LatLng> GetCenter() => await LeafletInterops.GetCenter(jsRuntime, Id);
         public async Task<float> GetZoom() => 
             await LeafletInterops.GetZoom(jsRuntime, Id);
-        public async Task<LatLngBounds> GetBounds() =>
-            await LeafletInterops.GetBounds(jsRuntime, Id);
-
-        public async Task SetMaxBounds(LatLngBounds bounds)
-        {
-            MaxBounds = new Tuple<LatLng, LatLng>(bounds._northEast, bounds._southWest);
-			await LeafletInterops.SetMaxBounds(jsRuntime, Id, bounds);
-		}
 
         /// <summary>
         /// Increases the zoom level by one notch.
